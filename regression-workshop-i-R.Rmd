@@ -29,7 +29,7 @@ require(graphics)
 head(USJudgeRatings)
 ```
 
-We are going to start out with a simple linear regression model with one predictor. We will predict `RTEN` (Worthy of retention) from `CONT` (Number of contacts of lawyer with judge).
+We are going to start out with a simple linear regression model with one predictor. We will predict `RTEN` (Worthy of retention) from `INTG` (Integrity rating).
 
 ```{r}
 # Fit the linear regression model
