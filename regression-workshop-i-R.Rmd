@@ -1,0 +1,239 @@
+---
+title: "Campbell Institute Regression Workshop I"
+author: "Baobao Zhang"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Univariate OLS regression
+
+In univariate OLS regression, we are predicting a single outcome variable from a single predictor variable. 
+
+In our example, we will use the `USJudgeRatings` dataset. This dataset contains ratings of 43 state judges on 12 dimensions.
+
+
+```{r}
+# Load some packages in 
+library(estimatr)
+library(tidyverse)
+library(plotly)
+
+# Load in the dataset that we will use
+require(graphics)
+head(USJudgeRatings)
+```
+
+We are going to start out with a simple linear regression model with one predictor. We will predict `RTEN` (Worthy of retention) from `CONT` (Number of contacts of lawyer with judge).
+
+```{r}
+# Fit the linear regression model
+model_1_predictor <- lm(RTEN ~ INTG, data = USJudgeRatings)
+
+# Create the plot
+ggplot(USJudgeRatings, aes(x = INTG, y = RTEN)) +
+  geom_point() +  # Add data points
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +  # Add regression line
+  geom_segment(aes(xend = INTG, yend = fitted(model_1_predictor)),
+               color = "red", alpha = 0.5) +  # Add residuals
+  labs(title = "OLS Regression with 1 Predictor",
+       x = "Intergrity rating (INTG)",
+       y = "Worthy of retention (RTEN)",
+       caption = "Red lines represent residuals") +
+  theme_minimal()
+
+tidy(lm_robust(RTEN ~ INTG, data = USJudgeRatings))
+
+```
+
+# Multiple OLS regression
+
+In multiple OLS regression, we are predicting a single outcome variable from multiple predictor variables.
+
+```{r}
+# Fit the linear regression model
+model <- lm(RTEN ~ INTG + FAMI, data = USJudgeRatings)
+
+# Create a grid of predictor values for INTG and FAMI
+INTG_seq <- seq(min(USJudgeRatings$INTG), max(USJudgeRatings$INTG), length.out = 50)
+FAMI_seq <- seq(min(USJudgeRatings$FAMI), max(USJudgeRatings$FAMI), length.out = 50)
+prediction_grid <- expand.grid(INTG = INTG_seq, FAMI = FAMI_seq)
+prediction_grid$RTEN <- predict(model, newdata = prediction_grid)
+
+# Reshape predictions into a matrix for plotly's surface
+# Rows correspond to FAMI and columns to INTG.
+z_matrix <- matrix(prediction_grid$RTEN, 
+                   nrow = length(FAMI_seq), 
+                   ncol = length(INTG_seq))
+
+# Create the interactive 3D plot with the regression surface and data points
+fig <- plot_ly() %>%
+  add_surface(x = INTG_seq, y = FAMI_seq, z = z_matrix,
+              opacity = 0.5, showscale = FALSE,
+              name = 'Regression Surface') %>%
+  add_markers(data = USJudgeRatings, 
+              x = ~INTG, y = ~FAMI, z = ~RTEN,
+              marker = list(color = 'blue', size = 3),
+              name = 'Data Points')
+
+# Compute residuals: lines from the fitted value at (INTG, FAMI) to the observed RTEN
+n <- nrow(USJudgeRatings)
+# Prepare vectors for line segments: for each data point, we create a segment:
+# (INTG, FAMI, fitted) --> (INTG, FAMI, observed)
+x_lines <- rep(NA, 3 * n)
+y_lines <- rep(NA, 3 * n)
+z_lines <- rep(NA, 3 * n)
+
+# For each observation, fill the vectors with two points and an NA to break the line
+x_lines[seq(1, 3*n, by = 3)] <- USJudgeRatings$INTG        # starting x (fitted)
+x_lines[seq(2, 3*n, by = 3)] <- USJudgeRatings$INTG        # ending x (observed)
+x_lines[seq(3, 3*n, by = 3)] <- NA                          # break
+
+y_lines[seq(1, 3*n, by = 3)] <- USJudgeRatings$FAMI        # starting y (fitted)
+y_lines[seq(2, 3*n, by = 3)] <- USJudgeRatings$FAMI        # ending y (observed)
+y_lines[seq(3, 3*n, by = 3)] <- NA                          # break
+
+z_lines[seq(1, 3*n, by = 3)] <- model$fitted.values         # starting z (fitted value)
+z_lines[seq(2, 3*n, by = 3)] <- USJudgeRatings$RTEN         # ending z (observed)
+z_lines[seq(3, 3*n, by = 3)] <- NA                          # break
+
+# Add the residual lines to the plot
+fig <- fig %>%
+  add_trace(x = x_lines, y = y_lines, z = z_lines,
+            type = 'scatter3d', mode = 'lines',
+            line = list(color = 'black', width = 2),
+            name = "Residuals") %>%
+  layout(title = "OLS regression with 2 predictor variables",
+         scene = list(xaxis = list(title = "INTG: judicial integrity"),
+                      yaxis = list(title = "FAMI: familiarity with law"),
+                      zaxis = list(title = "RTEN: worthy of retention")))
+
+fig
+
+# Run the OLS regression with robust standard errors
+model_robust_se <- lm_robust(RTEN ~ INTG + FAMI, data = USJudgeRatings)
+
+tidy(model_robust_se)
+
+```
+
+# Logistic regression
+
+For this question, we will use the "2011 Canadian National Election Study, With Attitude Toward Abortion" dataset, available here:
+https://vincentarelbundock.github.io/Rdatasets/csv/carData/CES11.csv
+
+The documentation for the dataset is here: https://vincentarelbundock.github.io/Rdatasets/doc/carData/CES11.html
+
+## Running the logistic regression
+
+We run a logistic regression to predict whether a respondent in the survey thinks that abortion should be banned based on the following variables:
+
+- gender: treat this variable as a binary categorical variable
+- importance: the importance of religion to the participant; convert this variable to a numerical variable such that not = 0, not very = 1, somewhat = 2, very = 3
+- education: the highest level of education the respondent has completed; treat this variable as a categorical variable with 6 levels
+- urban: whether the participant lives in an urban area: treat this variable as a binary categorical variable
+
+We output the results with odds ratios and 95% confidence intervals generated from robust standard errors.
+
+```{r}
+# Calculate robust standard errors using sandwich estimator
+library(sandwich)
+library(lmtest)
+library(broom)
+library(modelsummary)
+
+# Load in the dataset
+df <- read.csv("https://vincentarelbundock.github.io/Rdatasets/csv/carData/CES11.csv")
+
+# Recoding varibles
+
+# gender
+df$gender_female_c <- ifelse(df$gender == "Female", 1, 0)
+table(df$gender, df$gender_female_c)
+
+# importance of religion 
+df$importance_c <- NA
+df$importance_c[df$importance == "not"] <- 0
+df$importance_c[df$importance == "notvery"] <- 1
+df$importance_c[df$importance == "somewhat"] <- 2
+df$importance_c[df$importance == "very"] <- 3
+# check that we re-coded correctly
+table(df$importance, df$importance_c)
+
+# education
+# a factor with (alphabetical) levels bachelors (Bachelors degree), college (community college or technical school), higher (graduate degree), HS (high-school graduate), lessHS (less than high-school graduate), somePS (some post-secondary).
+
+# We are ordering this factor so that the levels are in the order of education level
+df$education_c <- factor(df$education,
+                          levels = c("lessHS", "HS", "somePS",
+                                     "college", "bachelors", "higher"))
+table(df$education_c)
+
+# urban/rural
+df$urban_c <- ifelse(df$urban == "urban", 1, 0)
+
+# abortion
+df$abortion_c <- ifelse(df$abortion == "Yes", 1, 0)
+table(df$abortion_c)
+
+# Run the logistic regression
+md <- glm(formula = abortion_c ~ gender_female_c + importance_c + 
+            education_c + urban_c, data = df, family = "binomial")
+
+coeftest(md, vcov = vcovHC(md, type = "HC3"))
+
+# Get model results with confidence intervals
+# Odds ratio: need to set exponentiate = TRUE
+# Add in robust standard errors by vcov = vcovHC(model, type = "HC3")
+md_results <- tidy(md, vcov = vcovHC(md, type = "HC3"),
+                      conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+md_results
+```
+
+## Interpreting logistic regression
+
+Write a brief interpretation of the results above (~150 words) in terms of the odds ratios and their confidence intervals.
+
+The logistic regression results indicate that respondents’ demographic and religious characteristics are meaningfully associated with their opinions on whether abortion should be banned. Adjusting for other variables:
+
+- As someone's self-reported importance of random goes up 1 point on the scale, they are 3.24 times more likely to oppose abortion ($p$-value <0.001). 
+
+- Female respondents are 0.705 times less likely to support a ban on abortion compared to male respondents ($p$-value less than 0.01). 
+
+- In terms of education, each increased level of education (compared with the reference category of less than high school) is associated with lower odds of supporting a ban on abortion. 
+
+- Respondents living in urban areas are 0.739 times less likely to support a ban on abortion compared to those living in rural areas ($p$-value <0.05).
+
+## Predicted probabilities
+
+You can use the logistic regression model to predict the probability of a respondent supporting a ban on abortion based on their demographic and religious characteristics.
+
+```{r}
+
+# Get the predicted probability for all the respondents in the dataset
+# Make sure you set the type to "response" to get the probability of the outcome
+all_respondents_predict <- predict(md, newdata = df, type = "response")
+
+# Make a histogram of the predicted probabilities
+hist(all_respondents_predict, breaks = 20,
+     main = "Predicted probabilities of supporting a ban on abortion",
+     xlab = "Predicted probability", ylab = "Frequency")
+
+# Get the predicted probability for a specific respondent
+# This respondent: lives in urban area, indicates that religion is not very important to them,
+# has a high school education, is male
+
+# education_c = "HS"
+predict(md, newdata = data.frame(urban_c = 1,
+                                 importance_c = 1,
+                                 education_c = "HS",
+                                 gender_female_c = 0),
+        type = "response")
+
+
+```
